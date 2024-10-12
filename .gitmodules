@@ -37,3 +37,6 @@
 [submodule "netcode"]
 	path = netcode
 	url = https://github.com/mas-bandwidth/netcode.git
+[submodule "obfuscate"]
+	path = obfuscate
+	url = https://github.com/adamyaxley/Obfuscate.git
