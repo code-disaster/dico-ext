@@ -19,3 +19,6 @@
 [submodule "qoi"]
 	path = qoi
 	url = https://github.com/phoboslab/qoi.git
+[submodule "cpp-httplib"]
+	path = cpp-httplib
+	url = https://github.com/code-disaster/cpp-httplib.git
