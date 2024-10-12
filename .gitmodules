@@ -13,3 +13,6 @@
 [submodule "cj5"]
 	path = cj5
 	url = https://github.com/septag/cj5.git
+[submodule "fpng"]
+	path = fpng
+	url = https://github.com/richgel999/fpng.git
