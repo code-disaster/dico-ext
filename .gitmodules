@@ -16,3 +16,6 @@
 [submodule "fpng"]
 	path = fpng
 	url = https://github.com/richgel999/fpng.git
+[submodule "qoi"]
+	path = qoi
+	url = https://github.com/phoboslab/qoi.git
