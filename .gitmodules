@@ -34,3 +34,6 @@
 [submodule "DirectX-Headers"]
 	path = DirectX-Headers
 	url = https://github.com/microsoft/DirectX-Headers.git
+[submodule "netcode"]
+	path = netcode
+	url = https://github.com/mas-bandwidth/netcode.git
