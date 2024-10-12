@@ -67,3 +67,6 @@
 [submodule "soloud"]
 	path = soloud
 	url = https://github.com/jarikomppa/soloud.git
+[submodule "dumb"]
+	path = dumb
+	url = https://github.com/code-disaster/dumb.git
