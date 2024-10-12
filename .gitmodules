@@ -25,3 +25,6 @@
 [submodule "dmon"]
 	path = dmon
 	url = https://github.com/septag/dmon.git
+[submodule "freetype"]
+	path = freetype
+	url = https://github.com/freetype/freetype.git
