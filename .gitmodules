@@ -40,3 +40,6 @@
 [submodule "obfuscate"]
 	path = obfuscate
 	url = https://github.com/adamyaxley/Obfuscate.git
+[submodule "serialize"]
+	path = serialize
+	url = https://github.com/mas-bandwidth/serialize.git
