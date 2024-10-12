@@ -52,3 +52,6 @@
 [submodule "VulkanMemoryAllocator"]
 	path = VulkanMemoryAllocator
 	url = https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
+[submodule "sokol"]
+	path = sokol
+	url = https://github.com/floooh/sokol.git
