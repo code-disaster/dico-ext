@@ -22,3 +22,6 @@
 [submodule "cpp-httplib"]
 	path = cpp-httplib
 	url = https://github.com/code-disaster/cpp-httplib.git
+[submodule "dmon"]
+	path = dmon
+	url = https://github.com/septag/dmon.git
