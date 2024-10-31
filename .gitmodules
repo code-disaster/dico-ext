@@ -73,3 +73,6 @@
 [submodule "IconFontCppHeaders"]
 	path = IconFontCppHeaders
 	url = https://github.com/juliettef/IconFontCppHeaders.git
+[submodule "reliable"]
+	path = reliable
+	url = https://github.com/mas-bandwidth/reliable.git
