@@ -76,3 +76,6 @@
 [submodule "reliable"]
 	path = reliable
 	url = https://github.com/mas-bandwidth/reliable.git
+[submodule "Cuik"]
+	path = Cuik
+	url = https://github.com/RealNeGate/Cuik.git
