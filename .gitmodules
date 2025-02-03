@@ -79,3 +79,6 @@
 [submodule "Cuik"]
 	path = Cuik
 	url = https://github.com/RealNeGate/Cuik.git
+[submodule "mimalloc"]
+	path = mimalloc
+	url = https://github.com/microsoft/mimalloc.git
