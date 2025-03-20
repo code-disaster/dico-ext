@@ -39,6 +39,12 @@ function (add_library_steamworks)
                 PROPERTY IMPORTED_LOCATION
                 ${DICO_EXT_DIR}/steamworks-sdk/redistributable_bin/linux64/libsteam_api.so
             )
+        elseif (APPLE)
+            set_property(
+                TARGET steam-api
+                PROPERTY IMPORTED_LOCATION
+                ${DICO_EXT_DIR}/steamworks-sdk/redistributable_bin/osx/libsteam_api.dylib
+            )
         endif ()
 
         #
@@ -66,6 +72,12 @@ function (add_library_steamworks)
                 TARGET steam-encryptedappticket
                 PROPERTY IMPORTED_LOCATION
                 ${DICO_EXT_DIR}/steamworks-sdk/public/steam/lib/linux64/libsdkencryptedappticket.so
+            )
+        elseif (APPLE)
+            set_property(
+                TARGET steam-encryptedappticket
+                PROPERTY IMPORTED_LOCATION
+                ${DICO_EXT_DIR}/steamworks-sdk/public/steam/lib/osx/libsdkencryptedappticket.dylib
             )
         endif ()
     else ()
