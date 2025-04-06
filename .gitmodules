@@ -82,3 +82,6 @@
 [submodule "mimalloc"]
 	path = mimalloc
 	url = https://github.com/microsoft/mimalloc.git
+[submodule "tina"]
+	path = tina
+	url = https://github.com/slembcke/Tina.git
