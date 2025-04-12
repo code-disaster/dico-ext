@@ -5,3 +5,14 @@ Even if copies of the SDK can be found all over GitHub, it's technically not all
 ## How to "install"
 
 Just drop the content of the `sdk/` folder here. Only the `public/steam/` and `redistributable_bin/` subfolders are required.
+
+## Known issues
+
+### Patch SONAME
+
+To "ship" the `libsdkencryptedappticket.so` shared library alongside a Linux server binary. This only needs to be done once after a SDK udpate.
+
+```sh
+cd $(dico-ext)/steamworks-sdk/public/steam/lib/linux64/
+patchelf --set-soname libsdkencryptedappticket.so libsdkencryptedappticket.so
+```
