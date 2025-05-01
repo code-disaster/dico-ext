@@ -82,3 +82,6 @@
 [submodule "tina"]
 	path = tina
 	url = https://github.com/slembcke/Tina.git
+[submodule "msdfgen"]
+	path = msdfgen
+	url = https://github.com/Chlumsky/msdfgen.git
