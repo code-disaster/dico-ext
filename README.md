@@ -13,5 +13,5 @@ About the dependencies that make this list:
 
 Notable exceptions about what I just wrote:
 
-- SDL3 isn't easy to build "by hand" from source. But their CMake build scripts are pretty good. All I do for Windows, Linux and macOS builds is to call `add_subdirectory(${DICO_EXT_DIR}/SDL ${CMAKE_BINARY_DIR}/ext/SDL EXCLUDE_FROM_ALL)`.
+- Some libraries like SDL3 and freetype aren't easy to build "by hand" from source. But their CMake build scripts are pretty good. All I do for Windows, Linux and macOS builds is to call e.g. `add_subdirectory(${DICO_EXT_DIR}/SDL ${CMAKE_BINARY_DIR}/ext/SDL EXCLUDE_FROM_ALL)`.
 - The Steamworks SDK isn't open-source. See remarks in `steamworks-sdk/README.md`.
