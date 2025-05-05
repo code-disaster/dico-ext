@@ -85,3 +85,6 @@
 [submodule "msdfgen"]
 	path = msdfgen
 	url = https://github.com/Chlumsky/msdfgen.git
+[submodule "clay"]
+	path = clay
+	url = https://github.com/nicbarker/clay.git
