@@ -88,3 +88,6 @@
 [submodule "clay"]
 	path = clay
 	url = https://github.com/nicbarker/clay.git
+[submodule "minicoro"]
+	path = minicoro
+	url = https://github.com/edubart/minicoro.git
