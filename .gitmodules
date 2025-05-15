@@ -91,3 +91,6 @@
 [submodule "JoltPhysics"]
 	path = JoltPhysics
 	url = https://github.com/jrouwe/JoltPhysics.git
+[submodule "cgltf"]
+	path = cgltf
+	url = https://github.com/jkuhlmann/cgltf.git
