@@ -40,15 +40,6 @@
 [submodule "serialize"]
 	path = serialize
 	url = https://github.com/mas-bandwidth/serialize.git
-[submodule "volk"]
-	path = volk
-	url = https://github.com/zeux/volk.git
-[submodule "Vulkan-Headers"]
-	path = Vulkan-Headers
-	url = https://github.com/KhronosGroup/Vulkan-Headers.git
-[submodule "VulkanMemoryAllocator"]
-	path = VulkanMemoryAllocator
-	url = https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
 [submodule "sokol"]
 	path = sokol
 	url = https://github.com/floooh/sokol.git
