@@ -8,8 +8,8 @@
 #ifndef CPPHTTPLIB_HTTPLIB_H
 #define CPPHTTPLIB_HTTPLIB_H
 
-#define CPPHTTPLIB_VERSION "0.26.0"
-#define CPPHTTPLIB_VERSION_NUM "0x001A00"
+#define CPPHTTPLIB_VERSION "0.27.0"
+#define CPPHTTPLIB_VERSION_NUM "0x001B00"
 
 /*
  * Platform compatibility check
@@ -1052,6 +1052,9 @@ private:
 
 ssize_t write_headers(Stream &strm, const Headers &headers);
 
+std::string make_host_and_port_string(const std::string &host, int port,
+                                      bool is_ssl);
+
 } // namespace detail
 
 class Server {
@@ -1129,6 +1132,8 @@ public:
   Server &
   set_header_writer(std::function<ssize_t(Stream &, Headers &)> const &writer);
 
+  Server &set_trusted_proxies(const std::vector<std::string> &proxies);
+
   Server &set_keep_alive_max_count(size_t count);
   Server &set_keep_alive_timeout(time_t sec);
 
@@ -1167,6 +1172,9 @@ protected:
                        const std::function<void(Request &)> &setup_request);
 
   std::atomic<socket_t> svr_sock_{INVALID_SOCKET};
+
+  std::vector<std::string> trusted_proxies_;
+
   size_t keep_alive_max_count_ = CPPHTTPLIB_KEEPALIVE_MAX_COUNT;
   time_t keep_alive_timeout_sec_ = CPPHTTPLIB_KEEPALIVE_TIMEOUT_SECOND;
   time_t read_timeout_sec_ = CPPHTTPLIB_SERVER_READ_TIMEOUT_SECOND;
@@ -1719,8 +1727,6 @@ private:
       const std::string &boundary, const UploadFormDataItems &items,
       const FormDataProviderItems &provider_items) const;
 
-  std::string adjust_host_string(const std::string &host) const;
-
   virtual bool
   process_socket(const Socket &socket,
                  std::chrono::time_point<std::chrono::steady_clock> start_time,
@@ -1953,14 +1959,17 @@ public:
   void update_certs(X509 *cert, EVP_PKEY *private_key,
                     X509_STORE *client_ca_cert_store = nullptr);
 
+  int ssl_last_error() const { return last_ssl_error_; }
+
 private:
   bool process_and_close_socket(socket_t sock) override;
 
+  STACK_OF(X509_NAME) * extract_ca_names_from_x509_store(X509_STORE *store);
+
   SSL_CTX *ctx_;
   std::mutex ctx_mutex_;
-#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
+
   int last_ssl_error_ = 0;
-#endif
 };
 
 class SSLClient final : public ClientImpl {

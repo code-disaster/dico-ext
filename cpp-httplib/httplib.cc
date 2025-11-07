@@ -1084,31 +1084,42 @@ int getaddrinfo_with_timeout(const char *node, const char *service,
   }
 #else
   // Fallback implementation using thread-based timeout for other Unix systems
-  std::mutex result_mutex;
-  std::condition_variable result_cv;
-  auto completed = false;
-  auto result = EAI_SYSTEM;
-  struct addrinfo *result_addrinfo = nullptr;
 
-  std::thread resolve_thread([&]() {
-    auto thread_result = getaddrinfo(node, service, hints, &result_addrinfo);
+  struct GetAddrInfoState {
+    std::mutex mutex;
+    std::condition_variable result_cv;
+    bool completed = false;
+    int result = EAI_SYSTEM;
+    std::string node = node;
+    std::string service = service;
+    struct addrinfo hints = hints;
+    struct addrinfo *info = nullptr;
+  };
 
-    std::lock_guard<std::mutex> lock(result_mutex);
-    result = thread_result;
-    completed = true;
-    result_cv.notify_one();
+  // Allocate on the heap, so the resolver thread can keep using the data.
+  auto state = std::make_shared<GetAddrInfoState>();
+
+  std::thread resolve_thread([=]() {
+    auto thread_result = getaddrinfo(
+        state->node.c_str(), state->service.c_str(), hints, &state->info);
+
+    std::lock_guard<std::mutex> lock(state->mutex);
+    state->result = thread_result;
+    state->completed = true;
+    state->result_cv.notify_one();
   });
 
   // Wait for completion or timeout
-  std::unique_lock<std::mutex> lock(result_mutex);
-  auto finished = result_cv.wait_for(lock, std::chrono::seconds(timeout_sec),
-                                     [&] { return completed; });
+  std::unique_lock<std::mutex> lock(state->mutex);
+  auto finished =
+      state->result_cv.wait_for(lock, std::chrono::seconds(timeout_sec),
+                                [&] { return state->completed; });
 
   if (finished) {
     // Operation completed within timeout
     resolve_thread.join();
-    *res = result_addrinfo;
-    return result;
+    *res = state->info;
+    return state->result;
   } else {
     // Timeout occurred
     resolve_thread.detach(); // Let the thread finish in background
@@ -1871,13 +1882,35 @@ bool zstd_decompressor::decompress(const char *data, size_t data_length,
 }
 #endif
 
+bool is_prohibited_header_name(const std::string &name) {
+  using udl::operator""_t;
+
+  switch (str2tag(name)) {
+  case "REMOTE_ADDR"_t:
+  case "REMOTE_PORT"_t:
+  case "LOCAL_ADDR"_t:
+  case "LOCAL_PORT"_t: return true;
+  default: return false;
+  }
+}
+
 bool has_header(const Headers &headers, const std::string &key) {
+  if (is_prohibited_header_name(key)) { return false; }
   return headers.find(key) != headers.end();
 }
 
 const char *get_header_value(const Headers &headers,
                                     const std::string &key, const char *def,
                                     size_t id) {
+  if (is_prohibited_header_name(key)) {
+#ifndef CPPHTTPLIB_NO_EXCEPTIONS
+    std::string msg = "Prohibited header name '" + key + "' is specified.";
+    throw std::invalid_argument(msg);
+#else
+    return "";
+#endif
+  }
+
   auto rng = headers.equal_range(key);
   auto it = rng.first;
   std::advance(it, static_cast<ssize_t>(id));
@@ -4536,6 +4569,30 @@ bool RegexMatcher::match(Request &request) const {
   return std::regex_match(request.path, request.matches, regex_);
 }
 
+std::string make_host_and_port_string(const std::string &host, int port,
+                                             bool is_ssl) {
+  std::string result;
+
+  // Enclose IPv6 address in brackets (but not if already enclosed)
+  if (host.find(':') == std::string::npos ||
+      (!host.empty() && host[0] == '[')) {
+    // IPv4, hostname, or already bracketed IPv6
+    result = host;
+  } else {
+    // IPv6 address without brackets
+    result = "[" + host + "]";
+  }
+
+  // Append port if not default
+  if ((!is_ssl && port == 80) || (is_ssl && port == 443)) {
+    ; // do nothing
+  } else {
+    result += ":" + std::to_string(port);
+  }
+
+  return result;
+}
+
 } // namespace detail
 
 // HTTP server implementation
@@ -4745,6 +4802,12 @@ Server &Server::set_default_headers(Headers headers) {
 Server &Server::set_header_writer(
     std::function<ssize_t(Stream &, Headers &)> const &writer) {
   header_writer_ = writer;
+  return *this;
+}
+
+Server &
+Server::set_trusted_proxies(const std::vector<std::string> &proxies) {
+  trusted_proxies_ = proxies;
   return *this;
 }
 
@@ -5536,6 +5599,40 @@ bool Server::dispatch_request_for_content_reader(
   return false;
 }
 
+std::string
+get_client_ip(const std::string &x_forwarded_for,
+              const std::vector<std::string> &trusted_proxies) {
+  // X-Forwarded-For is a comma-separated list per RFC 7239
+  std::vector<std::string> ip_list;
+  detail::split(x_forwarded_for.data(),
+                x_forwarded_for.data() + x_forwarded_for.size(), ',',
+                [&](const char *b, const char *e) {
+                  auto r = detail::trim(b, e, 0, static_cast<size_t>(e - b));
+                  ip_list.emplace_back(std::string(b + r.first, b + r.second));
+                });
+
+  for (size_t i = 0; i < ip_list.size(); ++i) {
+    auto ip = ip_list[i];
+
+    auto is_trusted_proxy =
+        std::any_of(trusted_proxies.begin(), trusted_proxies.end(),
+                    [&](const std::string &proxy) { return ip == proxy; });
+
+    if (is_trusted_proxy) {
+      if (i == 0) {
+        // If the trusted proxy is the first IP, there's no preceding client IP
+        return ip;
+      } else {
+        // Return the IP immediately before the trusted proxy
+        return ip_list[i - 1];
+      }
+    }
+  }
+
+  // If no trusted proxy is found, return the first IP in the list
+  return ip_list.front();
+}
+
 bool
 Server::process_request(Stream &strm, const std::string &remote_addr,
                         int remote_port, const std::string &local_addr,
@@ -5599,15 +5696,16 @@ Server::process_request(Stream &strm, const std::string &remote_addr,
     connection_closed = true;
   }
 
-  req.remote_addr = remote_addr;
+  if (!trusted_proxies_.empty() && req.has_header("X-Forwarded-For")) {
+    auto x_forwarded_for = req.get_header_value("X-Forwarded-For");
+    req.remote_addr = get_client_ip(x_forwarded_for, trusted_proxies_);
+  } else {
+    req.remote_addr = remote_addr;
+  }
   req.remote_port = remote_port;
-  req.set_header("REMOTE_ADDR", req.remote_addr);
-  req.set_header("REMOTE_PORT", std::to_string(req.remote_port));
 
   req.local_addr = local_addr;
   req.local_port = local_port;
-  req.set_header("LOCAL_ADDR", req.local_addr);
-  req.set_header("LOCAL_PORT", std::to_string(req.local_port));
 
   if (req.has_header("Accept")) {
     const auto &accept_header = req.get_header_value("Accept");
@@ -5797,7 +5895,7 @@ ClientImpl::ClientImpl(const std::string &host, int port,
                               const std::string &client_cert_path,
                               const std::string &client_key_path)
     : host_(detail::escape_abstract_namespace_unix_domain(host)), port_(port),
-      host_and_port_(adjust_host_string(host_) + ":" + std::to_string(port)),
+      host_and_port_(detail::make_host_and_port_string(host_, port, is_ssl())),
       client_cert_path_(client_cert_path), client_key_path_(client_key_path) {}
 
 ClientImpl::~ClientImpl() {
@@ -5978,8 +6076,9 @@ bool ClientImpl::send_(Request &req, Response &res, Error &error) {
   {
     std::lock_guard<std::mutex> guard(socket_mutex_);
 
-    // Set this to false immediately - if it ever gets set to true by the end of
-    // the request, we know another thread instructed us to close the socket.
+    // Set this to false immediately - if it ever gets set to true by the end
+    // of the request, we know another thread instructed us to close the
+    // socket.
     socket_should_be_closed_when_request_is_done_ = false;
 
     auto is_alive = false;
@@ -5995,10 +6094,10 @@ bool ClientImpl::send_(Request &req, Response &res, Error &error) {
 #endif
 
       if (!is_alive) {
-        // Attempt to avoid sigpipe by shutting down non-gracefully if it seems
-        // like the other side has already closed the connection Also, there
-        // cannot be any requests in flight from other threads since we locked
-        // request_mutex_, so safe to close everything immediately
+        // Attempt to avoid sigpipe by shutting down non-gracefully if it
+        // seems like the other side has already closed the connection Also,
+        // there cannot be any requests in flight from other threads since we
+        // locked request_mutex_, so safe to close everything immediately
         const bool shutdown_gracefully = false;
         shutdown_ssl(socket_, shutdown_gracefully);
         shutdown_socket(socket_);
@@ -6302,7 +6401,8 @@ bool ClientImpl::create_redirect_client(
   }
 }
 
-// New method for robust client setup (based on basic_manual_redirect.cpp logic)
+// New method for robust client setup (based on basic_manual_redirect.cpp
+// logic)
 template <typename ClientType>
 void ClientImpl::setup_redirect_client(ClientType &client) {
   // Copy basic settings first
@@ -6406,18 +6506,8 @@ bool ClientImpl::write_request(Stream &strm, Request &req,
     // curl behavior)
     if (address_family_ == AF_UNIX) {
       req.set_header("Host", "localhost");
-    } else if (is_ssl()) {
-      if (port_ == 443) {
-        req.set_header("Host", host_);
-      } else {
-        req.set_header("Host", host_and_port_);
-      }
     } else {
-      if (port_ == 80) {
-        req.set_header("Host", host_);
-      } else {
-        req.set_header("Host", host_and_port_);
-      }
+      req.set_header("Host", host_and_port_);
     }
   }
 
@@ -6684,12 +6774,6 @@ Result ClientImpl::send_with_content_provider(
 #endif
 }
 
-std::string
-ClientImpl::adjust_host_string(const std::string &host) const {
-  if (host.find(':') != std::string::npos) { return "[" + host + "]"; }
-  return host;
-}
-
 void ClientImpl::output_log(const Request &req,
                                    const Response &res) const {
   if (logger_) {
@@ -6813,8 +6897,8 @@ ContentProviderWithoutLength ClientImpl::get_multipart_content_provider(
     const FormDataProviderItems &provider_items) const {
   size_t cur_item = 0;
   size_t cur_start = 0;
-  // cur_item and cur_start are copied to within the std::function and maintain
-  // state between successive calls
+  // cur_item and cur_start are copied to within the std::function and
+  // maintain state between successive calls
   return [&, cur_item, cur_start](size_t offset,
                                   DataSink &sink) mutable -> bool {
     if (!offset && !items.empty()) {
@@ -7526,8 +7610,8 @@ void ClientImpl::stop() {
   // If there is anything ongoing right now, the ONLY thread-safe thing we can
   // do is to shutdown_socket, so that threads using this socket suddenly
   // discover they can't read/write any more and error out. Everything else
-  // (closing the socket, shutting ssl down) is unsafe because these actions are
-  // not thread-safe.
+  // (closing the socket, shutting ssl down) is unsafe because these actions
+  // are not thread-safe.
   if (socket_requests_in_flight_ > 0) {
     shutdown_socket(socket_);
 
@@ -7980,6 +8064,19 @@ SSLServer::SSLServer(const char *cert_path, const char *private_key_path,
       SSL_CTX_load_verify_locations(ctx_, client_ca_cert_file_path,
                                     client_ca_cert_dir_path);
 
+      // Set client CA list to be sent to clients during TLS handshake
+      if (client_ca_cert_file_path) {
+        auto ca_list = SSL_load_client_CA_file(client_ca_cert_file_path);
+        if (ca_list != nullptr) {
+          SSL_CTX_set_client_CA_list(ctx_, ca_list);
+        } else {
+          // Failed to load client CA list, but we continue since
+          // SSL_CTX_load_verify_locations already succeeded and
+          // certificate verification will still work
+          last_ssl_error_ = static_cast<int>(ERR_get_error());
+        }
+      }
+
       SSL_CTX_set_verify(
           ctx_, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, nullptr);
     }
@@ -8003,6 +8100,15 @@ SSLServer::SSLServer(X509 *cert, EVP_PKEY *private_key,
       ctx_ = nullptr;
     } else if (client_ca_cert_store) {
       SSL_CTX_set_cert_store(ctx_, client_ca_cert_store);
+
+      // Extract CA names from the store and set them as the client CA list
+      auto ca_list = extract_ca_names_from_x509_store(client_ca_cert_store);
+      if (ca_list) {
+        SSL_CTX_set_client_CA_list(ctx_, ca_list);
+      } else {
+        // Failed to extract CA names, record the error
+        last_ssl_error_ = static_cast<int>(ERR_get_error());
+      }
 
       SSL_CTX_set_verify(
           ctx_, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, nullptr);
@@ -8082,6 +8188,44 @@ bool SSLServer::process_and_close_socket(socket_t sock) {
   detail::shutdown_socket(sock);
   detail::close_socket(sock);
   return ret;
+}
+
+STACK_OF(X509_NAME) * SSLServer::extract_ca_names_from_x509_store(
+                                 X509_STORE *store) {
+  if (!store) { return nullptr; }
+
+  auto ca_list = sk_X509_NAME_new_null();
+  if (!ca_list) { return nullptr; }
+
+  // Get all objects from the store
+  auto objs = X509_STORE_get0_objects(store);
+  if (!objs) {
+    sk_X509_NAME_free(ca_list);
+    return nullptr;
+  }
+
+  // Iterate through objects and extract certificate subject names
+  for (int i = 0; i < sk_X509_OBJECT_num(objs); i++) {
+    auto obj = sk_X509_OBJECT_value(objs, i);
+    if (X509_OBJECT_get_type(obj) == X509_LU_X509) {
+      auto cert = X509_OBJECT_get0_X509(obj);
+      if (cert) {
+        auto subject = X509_get_subject_name(cert);
+        if (subject) {
+          auto name_dup = X509_NAME_dup(subject);
+          if (name_dup) { sk_X509_NAME_push(ca_list, name_dup); }
+        }
+      }
+    }
+  }
+
+  // If no names were extracted, free the list and return nullptr
+  if (sk_X509_NAME_num(ca_list) == 0) {
+    sk_X509_NAME_free(ca_list);
+    return nullptr;
+  }
+
+  return ca_list;
 }
 
 // SSL HTTP client implementation
@@ -8164,7 +8308,8 @@ void SSLClient::set_ca_cert_store(X509_STORE *ca_cert_store) {
   if (ca_cert_store) {
     if (ctx_) {
       if (SSL_CTX_get_cert_store(ctx_) != ca_cert_store) {
-        // Free memory allocated for old cert and use new store `ca_cert_store`
+        // Free memory allocated for old cert and use new store
+        // `ca_cert_store`
         SSL_CTX_set_cert_store(ctx_, ca_cert_store);
         ca_cert_store_ = ca_cert_store;
       }
@@ -8186,10 +8331,15 @@ long SSLClient::get_openssl_verify_result() const {
 SSL_CTX *SSLClient::ssl_context() const { return ctx_; }
 
 bool SSLClient::create_and_connect_socket(Socket &socket, Error &error) {
-  return is_valid() && ClientImpl::create_and_connect_socket(socket, error);
+  if (!is_valid()) {
+    error = Error::SSLConnection;
+    return false;
+  }
+  return ClientImpl::create_and_connect_socket(socket, error);
 }
 
-// Assumes that socket_mutex_ is locked and that there are no requests in flight
+// Assumes that socket_mutex_ is locked and that there are no requests in
+// flight
 bool SSLClient::connect_with_proxy(
     Socket &socket,
     std::chrono::time_point<std::chrono::steady_clock> start_time,
@@ -8403,6 +8553,11 @@ bool SSLClient::initialize_ssl(Socket &socket, Error &error) {
     return true;
   }
 
+  if (ctx_ == nullptr) {
+    error = Error::SSLConnection;
+    last_openssl_error_ = ERR_get_error();
+  }
+
   shutdown_socket(socket);
   close_socket(socket);
   return false;
@@ -8496,21 +8651,22 @@ SSLClient::verify_host_with_subject_alt_name(X509 *server_cert) const {
 
     for (decltype(count) i = 0; i < count && !dsn_matched; i++) {
       auto val = sk_GENERAL_NAME_value(alt_names, i);
-      if (val->type == type) {
-        auto name =
-            reinterpret_cast<const char *>(ASN1_STRING_get0_data(val->d.ia5));
-        auto name_len = static_cast<size_t>(ASN1_STRING_length(val->d.ia5));
+      if (!val || val->type != type) { continue; }
 
-        switch (type) {
-        case GEN_DNS: dsn_matched = check_host_name(name, name_len); break;
+      auto name =
+          reinterpret_cast<const char *>(ASN1_STRING_get0_data(val->d.ia5));
+      if (name == nullptr) { continue; }
 
-        case GEN_IPADD:
-          if (!memcmp(&addr6, name, addr_len) ||
-              !memcmp(&addr, name, addr_len)) {
-            ip_matched = true;
-          }
-          break;
+      auto name_len = static_cast<size_t>(ASN1_STRING_length(val->d.ia5));
+
+      switch (type) {
+      case GEN_DNS: dsn_matched = check_host_name(name, name_len); break;
+
+      case GEN_IPADD:
+        if (!memcmp(&addr6, name, addr_len) || !memcmp(&addr, name, addr_len)) {
+          ip_matched = true;
         }
+        break;
       }
     }
 
