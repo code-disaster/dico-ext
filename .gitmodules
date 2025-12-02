@@ -82,12 +82,12 @@
 [submodule "cgltf"]
 	path = cgltf
 	url = https://github.com/jkuhlmann/cgltf.git
-[submodule "yaml-cpp"]
-	path = yaml-cpp
-	url = https://github.com/jbeder/yaml-cpp.git
 [submodule "FTXUI"]
 	path = FTXUI
 	url = https://github.com/ArthurSonzogni/FTXUI.git
+[submodule "tomlc17"]
+	path = tomlc17
+	url = https://github.com/cktan/tomlc17.git
 [submodule "lsp-framework"]
 	path = lsp-framework
 	url = https://github.com/leon-bckl/lsp-framework.git
