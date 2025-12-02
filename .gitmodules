@@ -82,9 +82,6 @@
 [submodule "cgltf"]
 	path = cgltf
 	url = https://github.com/jkuhlmann/cgltf.git
-[submodule "yaml-cpp"]
-	path = yaml-cpp
-	url = https://github.com/jbeder/yaml-cpp.git
 [submodule "FTXUI"]
 	path = FTXUI
 	url = https://github.com/ArthurSonzogni/FTXUI.git
